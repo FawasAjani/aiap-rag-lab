@@ -40,25 +40,23 @@ def load_documents(data_dir="data"):
     """
     documents = []
 
-    # TODO: Exercise 2.1
-    # Use sorted(os.listdir(data_dir)) to get the files in a stable order
-    # Keep only the .txt files
-    # Read each file and append a (filename, content) tuple to documents
-    #
-    # Hints:
-    # - Use os.path.join() to create full file paths
-    # - Use .endswith('.txt') to filter for text files
-    # - Use 'with open(filepath, 'r', encoding='utf-8')' to read files
-    #
-    # GitHub Copilot Prompt: "Read all text files from a directory and return a sorted list of (filename, content) tuples"
+    for filename in sorted(os.listdir(data_dir)):
+        if filename.endswith(".txt"):
+            filepath = os.path.join(data_dir, filename)
 
-    # YOUR CODE HERE
-    pass  # Remove this line when you add your code
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            documents.append((filename, content))
 
     return documents
 
 
-def chunk_text(text, chunk_words=DEFAULT_CHUNK_WORDS, overlap_words=DEFAULT_OVERLAP_WORDS):
+def chunk_text(
+    text,
+    chunk_words=DEFAULT_CHUNK_WORDS,
+    overlap_words=DEFAULT_OVERLAP_WORDS
+):
     """
     Split text into overlapping chunks of roughly chunk_words WORDS.
 
@@ -72,24 +70,18 @@ def chunk_text(text, chunk_words=DEFAULT_CHUNK_WORDS, overlap_words=DEFAULT_OVER
     """
     chunks = []
 
-    # TODO: Exercise 2.2
-    # Split on words, not characters: a chunk that ends mid-word embeds
-    # badly and reads worse when it reaches the prompt.
-    #
-    # Algorithm:
-    # 1. words = text.split()
-    # 2. start = 0; step = chunk_words - overlap_words
-    # 3. Take words[start:start + chunk_words], join them with spaces, append
-    # 4. If that slice reached the end of the words, stop
-    # 5. Otherwise move start forward by step and repeat
-    #
-    # The overlap is why a fact sitting on a chunk boundary is still
-    # retrievable from at least one chunk.
-    #
-    # GitHub Copilot Prompt: "Split text into overlapping chunks of N words with M words of overlap"
+    words = text.split()
+    step = chunk_words - overlap_words
+    start = 0
 
-    # YOUR CODE HERE
-    pass  # Remove this line when you add your code
+    while start < len(words):
+        chunk = words[start:start + chunk_words]
+        chunks.append(" ".join(chunk))
+
+        if start + chunk_words >= len(words):
+            break
+
+        start += step
 
     return chunks
 
@@ -107,17 +99,10 @@ def generate_embeddings(chunks, model_name=EMBEDDING_MODEL):
     """
     print(f"Loading embedding model: {model_name}...")
 
-    # TODO: Exercise 2.3
-    # 1. Load the SentenceTransformer model using model_name
-    # 2. Use model.encode() to generate embeddings for all chunks
-    # 3. Return the embeddings
-    #
-    # Note: model.encode() takes a list of strings and returns all embeddings at once
-    #
-    # GitHub Copilot Prompt: "Use sentence-transformers to encode a list of text chunks"
+    model = SentenceTransformer(model_name)
+    embeddings = model.encode(chunks)
 
-    # YOUR CODE HERE
-    pass  # Remove this line when you add your code
+    return embeddings
 
 
 def store_in_chromadb(chunks, embeddings, sources, collection_name=COLLECTION):
@@ -133,44 +118,56 @@ def store_in_chromadb(chunks, embeddings, sources, collection_name=COLLECTION):
     Returns:
         ChromaDB collection object
     """
-    # TODO: Exercise 2.4
-    # 1. client = chromadb.PersistentClient(path="./chroma_db")
-    # 2. Delete the collection if it already exists (wrap in try/except),
-    #    so every run starts fresh -- DIY 6 depends on that
-    # 3. collection = client.create_collection(
-    #        name=collection_name,
-    #        configuration={"hnsw": {"space": "cosine"}},
-    #    )
-    #    Cosine compares the DIRECTION of two embeddings, the usual choice for
-    #    text. ChromaDB then reports 1 - cosine as the distance, which part 3
-    #    turns back into a similarity.
-    # 4. collection.add(
-    #        documents=chunks,
-    #        embeddings=embeddings.tolist(),
-    #        metadatas=[{"source": s} for s in sources],
-    #        ids=[f"chunk_{i}" for i in range(len(chunks))]
-    #    )
-    #
-    # The metadata is what lets part 3 show where a hit came from and part 4
-    # say which document an answer used. Drop it and citation is impossible.
-    #
-    # GitHub Copilot Prompt: "Store text chunks, embeddings and per-chunk metadata in a ChromaDB collection"
+    client = chromadb.PersistentClient(path="./chroma_db")
 
-    # YOUR CODE HERE
-    pass  # Remove this line when you add your code
+    try:
+        client.delete_collection(collection_name)
+    except Exception:
+        pass
+
+    collection = client.create_collection(
+        name=collection_name,
+        configuration={"hnsw": {"space": "cosine"}},
+    )
+
+    collection.add(
+        documents=chunks,
+        embeddings=embeddings.tolist(),
+        metadatas=[{"source": s} for s in sources],
+        ids=[f"chunk_{i}" for i in range(len(chunks))]
+    )
+
+    return collection
 
 
 def main():
     """Run the complete Part 2 pipeline."""
-    parser = argparse.ArgumentParser(description="Build the chunk index for the RAG lab.")
-    parser.add_argument("--chunk-words", type=int, default=DEFAULT_CHUNK_WORDS,
-                        help=f"words per chunk (default {DEFAULT_CHUNK_WORDS})")
-    parser.add_argument("--overlap-words", type=int, default=None,
-                        help=f"words shared between neighbours (default {DEFAULT_OVERLAP_WORDS}, "
-                             f"or a fifth of --chunk-words when that is smaller)")
+    parser = argparse.ArgumentParser(
+        description="Build the chunk index for the RAG lab."
+    )
+
+    parser.add_argument(
+        "--chunk-words",
+        type=int,
+        default=DEFAULT_CHUNK_WORDS,
+        help=f"words per chunk (default {DEFAULT_CHUNK_WORDS})"
+    )
+
+    parser.add_argument(
+        "--overlap-words",
+        type=int,
+        default=None,
+        help=f"words shared between neighbours (default {DEFAULT_OVERLAP_WORDS}, "
+             f"or a fifth of --chunk-words when that is smaller)"
+    )
+
     args = parser.parse_args()
-    overlap = (args.overlap_words if args.overlap_words is not None
-               else min(DEFAULT_OVERLAP_WORDS, args.chunk_words // 5))
+
+    overlap = (
+        args.overlap_words
+        if args.overlap_words is not None
+        else min(DEFAULT_OVERLAP_WORDS, args.chunk_words // 5)
+    )
 
     print("=" * 70)
     print("Part 2: Document Processing & Embeddings")
@@ -179,19 +176,29 @@ def main():
 
     # Step 1: Load documents
     documents = load_documents("data")
+
     if not documents:
         print("No documents loaded. Check your load_documents() function.")
         return
+
     print(f"Loaded {len(documents)} documents")
+
     for filename, _ in documents:
         print(f"   - {filename}")
+
     print()
 
     # Step 2: Chunk documents, remembering which file each chunk came from
     all_chunks = []
     sources = []
+
     for filename, content in documents:
-        chunks = chunk_text(content, chunk_words=args.chunk_words, overlap_words=overlap)
+        chunks = chunk_text(
+            content,
+            chunk_words=args.chunk_words,
+            overlap_words=overlap
+        )
+
         all_chunks.extend(chunks)
         sources.extend([filename] * len(chunks))
 
@@ -200,34 +207,74 @@ def main():
         return
 
     lengths = [len(c.split()) for c in all_chunks]
-    print(f"Produced {len(all_chunks)} chunks ({args.chunk_words} words, {overlap} overlap)")
+
+    print(
+        f"Produced {len(all_chunks)} chunks "
+        f"({args.chunk_words} words, {overlap} overlap)"
+    )
+
     print(f"  shortest: {min(lengths)} words")
     print(f"  longest:  {max(lengths)} words")
+
     if len(all_chunks) > 1:
         opening = " ".join(all_chunks[1].split()[:5])
-        print(f'Overlap check: chunk 1 begins "{opening}..." -- those words also sit '
-              f'inside chunk 0: {opening in all_chunks[0]}')
+
+        print(
+            f'Overlap check: chunk 1 begins "{opening}..." -- '
+            f"those words also sit inside chunk 0: "
+            f"{opening in all_chunks[0]}"
+        )
+
     print()
 
     # Step 3: Generate embeddings
     embeddings = generate_embeddings(all_chunks)
+
     if embeddings is None:
-        print("No embeddings generated. Check your generate_embeddings() function.")
+        print(
+            "No embeddings generated. "
+            "Check your generate_embeddings() function."
+        )
         return
+
     print(f"Embedded {len(embeddings)} chunks")
     print(f"Vector dimensionality: {len(embeddings[0])}")
 
-    query_vector = SentenceTransformer(EMBEDDING_MODEL).encode("what is a variable")
-    print(f"Query vector (first 5): {[round(float(x), 3) for x in query_vector[:5]]}")
-    print(f"Dimensions match: {len(query_vector) == len(embeddings[0])}")
+    query_vector = SentenceTransformer(
+        EMBEDDING_MODEL
+    ).encode("what is a variable")
+
+    print(
+        f"Query vector (first 5): "
+        f"{[round(float(x), 3) for x in query_vector[:5]]}"
+    )
+
+    print(
+        f"Dimensions match: "
+        f"{len(query_vector) == len(embeddings[0])}"
+    )
+
     print()
 
     # Step 4: Store in ChromaDB
-    collection = store_in_chromadb(all_chunks, embeddings, sources)
+    collection = store_in_chromadb(
+        all_chunks,
+        embeddings,
+        sources
+    )
+
     if collection is None:
-        print("Failed to create collection. Check your store_in_chromadb() function.")
+        print(
+            "Failed to create collection. "
+            "Check your store_in_chromadb() function."
+        )
         return
-    print(f"Stored {collection.count()} chunks in ./chroma_db (collection '{COLLECTION}')")
+
+    print(
+        f"Stored {collection.count()} chunks in ./chroma_db "
+        f"(collection '{COLLECTION}')"
+    )
+
     print()
 
     print("=" * 70)

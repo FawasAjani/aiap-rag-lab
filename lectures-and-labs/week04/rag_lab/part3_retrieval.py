@@ -22,88 +22,56 @@ EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 def semantic_search(query, collection, model, top_k=3):
     """
     Return the top_k chunks nearest in meaning to the query.
-
-    Args:
-        query: The question, as a string
-        collection: ChromaDB collection from part 2
-        model: SentenceTransformer model -- the SAME one part 2 used
-        top_k: Number of results to return
-
-    Returns:
-        List of (chunk_text, source, similarity) tuples, best first.
-        Part 2 built the index with cosine distance, so ChromaDB reports
-        distance = 1 - cosine similarity (lower is closer). Convert it back
-        with similarity = 1 - distance, so that higher means closer.
     """
-    # TODO: Exercise 3.1
-    # 1. query_embedding = model.encode(query)
-    # 2. results = collection.query(
-    #        query_embeddings=[query_embedding.tolist()],
-    #        n_results=top_k
-    #    )
-    # 3. Pull out, for each hit:
-    #      results['documents'][0]   -> the chunk texts
-    #      results['metadatas'][0]   -> dicts with the 'source' filename
-    #      results['distances'][0]   -> distances (lower = closer)
-    # 4. Return [(text, source, 1 - distance), ...]
-    #
-    # GitHub Copilot Prompt: "Query a ChromaDB collection with an embedding and return text, metadata source and similarity for the top k hits"
+    query_embedding = model.encode(query)
 
-    # YOUR CODE HERE
-    pass  # Remove this line when you add your code
+    results = collection.query(
+        query_embeddings=[query_embedding.tolist()],
+        n_results=top_k
+    )
+
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
+    distances = results["distances"][0]
+
+    return [
+        (text, metadata["source"], 1 - distance)
+        for text, metadata, distance in zip(
+            documents, metadatas, distances
+        )
+    ]
 
 
 def filter_by_relevance(results, min_similarity=0.2):
     """
     Keep only the hits whose similarity clears a threshold.
-
-    Args:
-        results: List of (chunk_text, source, similarity) tuples
-        min_similarity: Lowest similarity worth keeping
-
-    Returns:
-        The filtered list, same tuple shape
-
-    Nearest-neighbour search ALWAYS returns something (DIY 4). The score is
-    the only signal that nothing relevant was found, and this threshold is
-    where you act on it.
-
-    0.2 is calibrated on this corpus with questions whose answers are known:
-    a question the documents answer tops out around 0.3 to 0.45, a question
-    they do not answer stays under 0.1. A score is not a percentage, and a
-    threshold only means something for the model and corpus it was set on.
     """
-    # TODO: Exercise 3.2
-    # Return the tuples whose similarity >= min_similarity
-    #
-    # GitHub Copilot Prompt: "Filter a list of (text, source, score) tuples by a minimum score"
-
-    # YOUR CODE HERE
-    pass  # Remove this line when you add your code
+    return [
+        (text, source, similarity)
+        for text, source, similarity in results
+        if similarity >= min_similarity
+    ]
 
 
 def manage_context_window(results, max_tokens=1500):
     """
     Join chunk texts into one context string that fits a token budget.
-
-    Args:
-        results: List of (chunk_text, source, similarity) tuples, best first
-        max_tokens: Approximate budget (4 characters is roughly 1 token)
-
-    Returns:
-        One string: the chunks that fit, each prefixed with its source and
-        separated by a blank line and a rule
     """
-    # TODO: Exercise 3.3
-    # 1. Start with an empty list of pieces
-    # 2. For each hit, build "[source: <file>]\n<text>"
-    # 3. Add it only if the total length in characters // 4 stays within max_tokens
-    # 4. Join the pieces with "\n\n---\n\n" and return the string
-    #
-    # GitHub Copilot Prompt: "Combine labelled text chunks with separators while staying within a token budget"
+    pieces = []
+    total_chars = 0
+    max_chars = max_tokens * 4
 
-    # YOUR CODE HERE
-    pass  # Remove this line when you add your code
+    for text, source, similarity in results:
+        piece = f"[source: {source}]\n{text}"
+        piece_chars = len(piece)
+
+        if total_chars + piece_chars <= max_chars:
+            pieces.append(piece)
+            total_chars += piece_chars
+        else:
+            break
+
+    return "\n\n---\n\n".join(pieces)
 
 
 def display_results(query, results):
@@ -134,7 +102,6 @@ def main():
     print(f"Connected to collection with {collection.count()} chunks")
     print()
 
-    # DIY 3: same meaning, different words. DIY 4: nothing relevant at all.
     queries = [
         "what is a variable",
         "how can my code remember a number for later",
